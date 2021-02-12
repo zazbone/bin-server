@@ -1,3 +1,5 @@
+const deleteButton = document.getElementById("delete-button");
+const token = deleteButton ? deleteButton.dataset.token : undefined;
 const locs = [...document.getElementsByClassName('line-number')];
 const selectedLocs = document.getElementsByClassName('selected');
 
@@ -42,4 +44,19 @@ function handleHash() {
       line.scrollIntoView();
     }
   }
+}
+
+if (token) {
+  deleteButton.addEventListener('click', () => {
+    fetch(window.location.pathname, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Token ${token}`
+      }
+    }).then((res) => {
+      if (res.ok) {
+        window.location.href = '/';
+      }
+    });
+  });
 }

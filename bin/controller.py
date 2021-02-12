@@ -5,6 +5,7 @@ Various HTTP routes the external world uses to communicate with the application.
 
 import bottle as bt
 import re
+from secrets import token_urlsafe
 from pathlib import Path
 from metrics import Time
 from bin import root, config, models
@@ -36,6 +37,7 @@ def get_new_form():
     code = models.Snippet.get_by_id(parentid).code if parentid else ""
     return bt.template(
         'newform.html',
+        token=token_urlsafe(16),
         languages=languages,
         default_language=lang,
         code=code,
@@ -62,10 +64,11 @@ def post_new():
     for the snippet.
 
     :param code: (form) required snippet text, can alternativaly be sent as a Multi-Part utf-8 file
-    :param lang: (form) optionnal language
-    :param maxusage: (form) optionnal maximum download of the snippet before it is deleted
-    :param lifetime: (form) optionnal time (defined in seconds) the snippet is keep in the database before it is deleted
-    :param parentid: (form) optionnal snippet id this new snippet is a duplicate of
+    :param lang: (form) optional language
+    :param maxusage: (form) optional maximum download of the snippet before it is deleted
+    :param lifetime: (form) optional time (defined in seconds) the snippet is keep in the database before it is deleted
+    :param parentid: (form) optional snippet id this new snippet is a duplicate of
+    :param token: (form) optional this allows you to delete your bin
 
     :raises HTTPError: code 411 when the ``Content-Length`` http header is missing
     :raises HTTPError: code 413 when the http request is too large (mostly because the snippet is too long)
@@ -97,6 +100,7 @@ def post_new():
             maxusage = int(forms.get('maxusage') or maxusage)
             lifetime = Time(forms.get('lifetime') or lifetime)
             parentid = forms.get('parentid', '')
+            token = forms.get('token')
 
         if not code:
             raise ValueError("Code is missing")
@@ -109,10 +113,12 @@ def post_new():
                 models.Snippet.get_by_id(parentid)
             except KeyError:
                 raise ValueError("Parent does not exist")
+        if token and len(token) > 22:
+            raise ValueError("Token length must not exceed 22 chars")
     except ValueError as exc:
         raise bt.HTTPError(400, str(exc))
 
-    snippet = models.Snippet.create(code, maxusage, lifetime, parentid)
+    snippet = models.Snippet.create(code, maxusage, lifetime, parentid, token)
     bt.redirect(f'/{snippet.id}.{ext}')
 
 
@@ -124,6 +130,8 @@ def get_html(snippetid, ext=None):
 
     :param snippetid: (path) required snippet id
     :param ext: (path) optional language file extension, used to determine the highlight backend
+
+    :param token: (query) optional the token
 
     :raises HTTPError: code 404 when the snippet is not found
     """
@@ -143,7 +151,34 @@ def get_html(snippetid, ext=None):
         ext=ext,
         snippetid=snippetid,
         parentid=snippet.parentid,
+        token=bt.request.query.token,
     )
+
+@bt.route('/<snippetid>', method='DELETE')
+@bt.route('/<snippetid>.<ext>', method='DELETE')
+def delete_snippet(snippetid, ext=None):
+    """
+    Delete a snippet
+
+    :param Authorization: (header) required "Authorization: Token <ADMIN_TOKEN>" the token
+
+    raises HTTPError: code 400 when the token is missing
+    :raises HTTPError: code 401 when the token is incorrect
+    :raises HTTPError: code 404 when the snippet is not found
+    """
+    try:
+        snippet = models.Snippet.get_by_id(snippetid)
+    except KeyError:
+        raise bt.HTTPError(404, "Snippet not found")
+
+    method, token = bt.request.get_header('Authorization', '').split(None, 1)
+    if method.lower() != 'token':
+        raise bt.HTTPError(400, "Token is missing")
+
+    if snippet.token and snippet.token != token:
+        raise bt.HTTPError(401, "Unauthorized")
+
+    snippet.delete_by_id(snippetid)
 
 
 @bt.route('/raw/<snippetid>', method='GET')

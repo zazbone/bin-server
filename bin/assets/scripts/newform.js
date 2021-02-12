@@ -1,6 +1,13 @@
 const form = document.forms[0];
 const code = form.code;
+const token = form.token;
 
+token.addEventListener('click', (event) => {
+  navigator.clipboard.writeText(token.value).catch(() => {
+    token.value.select();
+    document.execCommand('copy');
+  });
+})
 // remove the "required" error message that overflows the page
 code.addEventListener('invalid', (event) => event.preventDefault());
 code.addEventListener('keydown', (event) => {
@@ -16,7 +23,7 @@ code.addEventListener('keydown', (event) => {
     const caretPos = selectionStart + 1;
     code.focus();
     code.setSelectionRange(caretPos, caretPos);
-  } else if (event.code === 'KeyS' && (e.ctrlKey || e.metaKey) && form.checkValidity()) {
+  } else if (event.code === 'KeyS' && (event.ctrlKey || event.metaKey) && form.checkValidity()) {
     // ctrl+s triggers form submission
     event.preventDefault();
     form.submit();
